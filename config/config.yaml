@@ -1,84 +1,44 @@
-project:
-  name: ML-Based Malaria Occurrence Prediction System
-  description: Binary classification of malaria positive/negative cases using clinical features.
-
 data:
-  dataset_path: dataset/Malaria Diseases dataset - .csv
-  processed_dataset_path: data/processed/malaria_processed.csv
-  target_column: malaria_occurrence
+  raw_path: "dataset/Malaria_Dataset.csv"
+  processed_path: "data/processed/malaria_processed.csv"
+  target_column: "target"
+  remove_duplicates: true
 
-training:
+split:
   test_size: 0.2
   random_state: 42
+  stratify: true
 
 models:
   logistic_regression:
     max_iter: 1000
-    class_weight: balanced
+    C: 1.0
+    class_weight: "balanced"
   decision_tree:
-    max_depth: 5
-    class_weight: balanced
+    max_depth: 8
+    min_samples_leaf: 5
+    random_state: 42
+    class_weight: "balanced"
   random_forest:
     n_estimators: 200
-    max_depth: 10
-    class_weight: balanced
+    max_depth: 12
+    min_samples_leaf: 3
+    random_state: 42
+    class_weight: "balanced"
   svm:
-    kernel: rbf
-    c: 1.0
-    class_weight: balanced
-    calibration_method: sigmoid
-    calibration_cv: 3
+    kernel: "rbf"
+    C: 1.0
+    random_state: 42
+    class_weight: "balanced"
 
 artifacts:
-  model_dir: models
-  reports_dir: reports
+  models_dir: "models/"
+  reports_dir: "reports/"
+  figures_dir: "reports/figures/"
 
-prediction:
-  positive_label: Malaria Positive
-  negative_label: Malaria Negative
+eda:
+  figures_dir: "reports/figures/"
 
 dashboard:
-  title: "🦟 Malaria Occurrence Prediction System"
-  description: "Predict malaria occurrence probability from hematology and demographic features."
-  positive_threshold: 0.5
-
-validation:
-  required_features:
-    - sex
-    - age
-    - hemoglobin_hb_pct
-    - total_wbc_count_cumm
-    - neutrophils
-    - lymphocytes
-    - total_cir_eosinophils
-    - htc_pcv_pct
-    - mch_pg
-    - mchc_g_dl
-    - rdw_cv_pct
-    - platelet_count
-  categorical_allowed_values:
-    sex:
-      - Male
-      - Female
-  numeric_ranges:
-    age: { min: 0, max: 120 }
-    hemoglobin_hb_pct: { min: 2, max: 24 }
-    total_wbc_count_cumm: { min: 500, max: 120000 }
-    neutrophils: { min: 0, max: 100 }
-    lymphocytes: { min: 0, max: 100 }
-    total_cir_eosinophils: { min: 0, max: 5000 }
-    htc_pcv_pct: { min: 10, max: 70 }
-    mch_pg: { min: 10, max: 45 }
-    mchc_g_dl: { min: 20, max: 45 }
-    rdw_cv_pct: { min: 5, max: 35 }
-    platelet_count: { min: 5000, max: 1500000 }
-
-explainability:
-  enabled: true
-  output_dir: reports/explainability
-  n_repeats: 8
-  top_n_features: 15
-
-tracking:
-  enabled: true
-  experiments_dir: reports/experiments
+  title: "Malaria Occurrence Prediction System"
+  default_threshold: 0.5
