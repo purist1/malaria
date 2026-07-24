@@ -1,11 +1,4 @@
-"""Unit tests for single and batch predictions using temporary mock pipelines.
-
-Updated for the Malaria_Dataset.csv symptom-based feature set:
-  Categorical: sex, residence_area
-  Numeric: age, length_of_stay, fever, headache, abdominal_pain,
-           general_body_malaise, dizziness, vomiting, confusion,
-           backache, chest_pain, coughing, joint_pain
-"""
+"""Unit tests for single and batch predictions using temporary mock pipelines."""
 
 from __future__ import annotations
 
@@ -20,15 +13,11 @@ from src.malaria_forecast.features import LABEL_MAP
 from src.malaria_forecast.predict import predict_single_record, predict_batch_csv
 
 
-# ---------------------------------------------------------------------------
-# Canonical feature lists matching features.py
-# ---------------------------------------------------------------------------
-_CATEGORICAL = ["sex", "residence_area"]
+_CATEGORICAL = ["sex", "residence", "season"]
 _NUMERIC = [
-    "age", "length_of_stay",
-    "fever", "headache", "abdominal_pain", "general_body_malaise",
-    "dizziness", "vomiting", "confusion", "backache",
-    "chest_pain", "coughing", "joint_pain",
+    "age_years", "hemoglobin_g_dl", "fever_days",
+    "uses_mosquito_net", "has_fever", "has_chills",
+    "has_headache", "has_vomiting", "has_diarrhea", "has_weakness",
 ]
 
 
@@ -38,20 +27,18 @@ def temp_model_pipeline(tmp_path: Path) -> Path:
     model_dir = tmp_path / "models"
     model_dir.mkdir()
 
-    # Fit scaler on 2-row dummy numeric data
     scaler = StandardScaler()
     dummy_num = pd.DataFrame(
-        [[30.0, 4, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1],
-         [45.0, 7, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0]],
+        [[30.0, 10.5, 3, 1, 1, 1, 1, 0, 0, 1],
+         [45.0, 13.5, 0, 0, 0, 0, 0, 0, 0, 0]],
         columns=_NUMERIC,
     )
     scaler.fit(dummy_num)
 
-    # Fit encoder on 2-row dummy categorical data
     encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
     dummy_cat = pd.DataFrame(
-        [["Male", "Mangalore"],
-         ["Female", "Udupi"]],
+        [["Male", "Rural", "Rainy"],
+         ["Female", "Urban", "Dry"]],
         columns=_CATEGORICAL,
     )
     encoder.fit(dummy_cat)
@@ -59,26 +46,22 @@ def temp_model_pipeline(tmp_path: Path) -> Path:
     encoded_cat_cols = list(encoder.get_feature_names_out(_CATEGORICAL))
     final_feature_order = _NUMERIC + encoded_cat_cols
 
-    # Imputation defaults (must mirror keys used by predict.py)
     imputation_defaults: dict = {
         "sex": "Male",
-        "residence_area": "Udupi",
-        "age": 44.0,
-        "length_of_stay": 5.0,
-        "fever": 0.0,
-        "headache": 0.0,
-        "abdominal_pain": 0.0,
-        "general_body_malaise": 1.0,
-        "dizziness": 0.0,
-        "vomiting": 0.0,
-        "confusion": 0.0,
-        "backache": 1.0,
-        "chest_pain": 0.0,
-        "coughing": 0.0,
-        "joint_pain": 1.0,
+        "residence": "Rural",
+        "season": "Rainy",
+        "age_years": 30.0,
+        "hemoglobin_g_dl": 11.4,
+        "fever_days": 1.0,
+        "uses_mosquito_net": 1,
+        "has_fever": 1,
+        "has_chills": 0,
+        "has_headache": 0,
+        "has_vomiting": 0,
+        "has_diarrhea": 0,
+        "has_weakness": 1,
     }
 
-    # Fit a minimal LogisticRegression on the processed feature space
     clf = LogisticRegression()
     X_dummy = pd.DataFrame(
         [[0.0] * len(final_feature_order),
@@ -87,7 +70,6 @@ def temp_model_pipeline(tmp_path: Path) -> Path:
     )
     clf.fit(X_dummy, [0, 1])
 
-    # Persist artifacts
     save_artifact(clf, model_dir / "best_model.joblib")
     save_artifact(clf, model_dir / "logistic_regression.joblib")
     save_artifact(
@@ -106,28 +88,22 @@ def temp_model_pipeline(tmp_path: Path) -> Path:
     return model_dir
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
 def test_predict_single_record_all_fields(temp_model_pipeline: Path) -> None:
     """Full single-record prediction returns a valid label and probability."""
     record = {
         "sex": "Male",
-        "residence_area": "Mangalore",
-        "age": 35.0,
-        "length_of_stay": 4.0,
-        "fever": 1.0,
-        "headache": 0.0,
-        "abdominal_pain": 0.0,
-        "general_body_malaise": 1.0,
-        "dizziness": 0.0,
-        "vomiting": 0.0,
-        "confusion": 0.0,
-        "backache": 1.0,
-        "chest_pain": 0.0,
-        "coughing": 0.0,
-        "joint_pain": 1.0,
+        "residence": "Rural",
+        "season": "Rainy",
+        "age_years": 35.0,
+        "hemoglobin_g_dl": 10.2,
+        "fever_days": 3.0,
+        "uses_mosquito_net": 1,
+        "has_fever": 1,
+        "has_chills": 1,
+        "has_headache": 1,
+        "has_vomiting": 0,
+        "has_diarrhea": 0,
+        "has_weakness": 1,
     }
     res = predict_single_record(
         record=record,
@@ -143,7 +119,7 @@ def test_predict_single_record_all_fields(temp_model_pipeline: Path) -> None:
 
 def test_predict_single_record_partial_fields(temp_model_pipeline: Path) -> None:
     """Partial record (missing fields) must fall back to imputation defaults."""
-    partial_record = {"sex": "Female", "age": 50.0, "fever": 1.0}
+    partial_record = {"sex": "Female", "age_years": 50.0, "has_fever": 1}
     res = predict_single_record(
         record=partial_record,
         model_dir=temp_model_pipeline,
@@ -156,24 +132,20 @@ def test_predict_batch_csv(temp_model_pipeline: Path, tmp_path: Path) -> None:
     """Batch predictions are saved with predicted_label and predicted_probability."""
     input_df = pd.DataFrame([
         {
-            "Sex": "Male", "Residence_Area": "Mangalore", "Age": 30,
-            "DOA": "01-01-2020 08:00", "Discharge_Date": "05-01-2020 08:00",
-            "Fever": 1, "Headache": 0, "Abdominal_Pain": 0,
-            "General_Body_Malaise": 1, "Dizziness": 0, "Vomiting": 0,
-            "Confusion": 0, "Backache": 1, "Chest_Pain": 0,
-            "Coughing": 0, "Joint_Pain": 1,
-            "IP_Number": "xx01", "Primary_Code": "B50.9",
-            "Diagnosis_Type": "Mixed", "Target": 1, "Risk_Score": 7,
+            "patient_id": "MAL001",
+            "sex": "Male", "residence": "Rural", "season": "Rainy",
+            "age_years": 30, "hemoglobin_g_dl": 10.5, "fever_days": 3,
+            "uses_mosquito_net": True, "has_fever": True, "has_chills": True,
+            "has_headache": True, "has_vomiting": False, "has_diarrhea": False,
+            "has_weakness": True, "malaria_status": "Positive",
         },
         {
-            "Sex": "Female", "Residence_Area": "Udupi", "Age": 45,
-            "DOA": "02-01-2020 09:00", "Discharge_Date": "06-01-2020 09:00",
-            "Fever": 0, "Headache": 1, "Abdominal_Pain": 1,
-            "General_Body_Malaise": 0, "Dizziness": 1, "Vomiting": 1,
-            "Confusion": 0, "Backache": 0, "Chest_Pain": 1,
-            "Coughing": 1, "Joint_Pain": 0,
-            "IP_Number": "xx02", "Primary_Code": "B54",
-            "Diagnosis_Type": "Vivax", "Target": 0, "Risk_Score": 5,
+            "patient_id": "MAL002",
+            "sex": "Female", "residence": "Urban", "season": "Dry",
+            "age_years": 45, "hemoglobin_g_dl": 13.5, "fever_days": 0,
+            "uses_mosquito_net": False, "has_fever": False, "has_chills": False,
+            "has_headache": False, "has_vomiting": False, "has_diarrhea": False,
+            "has_weakness": False, "malaria_status": "Negative",
         },
     ])
     input_csv = tmp_path / "batch_input.csv"
@@ -198,4 +170,4 @@ def test_missing_model_file_raises(tmp_path: Path) -> None:
     empty_dir = tmp_path / "empty_models"
     empty_dir.mkdir()
     with pytest.raises(FileNotFoundError):
-        predict_single_record(record={"age": 30}, model_dir=empty_dir)
+        predict_single_record(record={"age_years": 30}, model_dir=empty_dir)

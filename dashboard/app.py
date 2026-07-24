@@ -126,7 +126,7 @@ def main() -> None:
         f"""
         <div class="main-header">
             <div class="main-title">🦟 {dashboard_cfg["title"]}</div>
-            <div class="main-subtitle">An evidence-based clinical decision support tool using machine learning to predict patient-level malaria risk.</div>
+            <div class="main-subtitle">An evidence-based clinical decision support tool using machine learning to predict Sub-Saharan Africa patient-level malaria risk.</div>
         </div>
         """,
         unsafe_allow_html=True
@@ -145,7 +145,6 @@ def main() -> None:
 
     available_models = ["Best Model (Auto-selected)"]
     if metadata is not None:
-        # Logistic Regression, Decision Tree, etc.
         model_keys = ["logistic_regression", "decision_tree", "random_forest", "svm"]
         available_models.extend(model_keys)
 
@@ -155,7 +154,6 @@ def main() -> None:
         help="Select which classifier model to run for single patient risk predictions."
     )
 
-    # Determine internal model name
     if selected_model_choice == "Best Model (Auto-selected)":
         selected_model_name = None
     else:
@@ -183,7 +181,6 @@ def main() -> None:
             try:
                 metrics_df, best_name = train_all_models(CONFIG_PATH)
                 st.sidebar.success(f"Retraining complete! Best model: {best_name}")
-                # Reload metadata after training
                 metadata = load_artifact(metadata_path)
                 st.cache_data.clear()
             except Exception as exc:
@@ -198,22 +195,20 @@ def main() -> None:
             st.info("Please retrain the models in the sidebar to load the prediction form.")
         else:
             st.subheader("🔬 Single Patient Clinical Risk Form")
-            st.caption("Provide patient demographics, length of stay, and symptom details to predict risk.")
+            st.caption("Provide patient demographics, environmental context, and clinical symptoms to predict risk.")
 
             imputations = metadata["imputation_defaults"]
 
-            # Dynamic Input Form
             with st.form("single_prediction_form"):
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    # Categorical: Sex
+                    st.markdown("**Demographic & Environmental Context**")
+                    
+                    # Sex
                     default_sex = imputations.get("sex", "Male")
-                    sex_options = list(metadata["encoder"].categories_[0]) if (metadata and "encoder" in metadata) else ["Male", "Female"]
-                    try:
-                        sex_index = sex_options.index(default_sex)
-                    except ValueError:
-                        sex_index = 0
+                    sex_options = ["Male", "Female"]
+                    sex_index = sex_options.index(default_sex) if default_sex in sex_options else 0
                     sex = st.selectbox(
                         "Patient Sex",
                         options=sex_options,
@@ -221,54 +216,82 @@ def main() -> None:
                         help="Biological sex of the patient."
                     )
 
-                    # Categorical: Residence Area
-                    default_res = imputations.get("residence_area", "Lokoja")
-                    res_options = list(metadata["encoder"].categories_[1]) if (metadata and "encoder" in metadata) else ["Lokoja", "Idah", "Kabba", "Anyigba", "Okene"]
-                    try:
-                        res_index = res_options.index(default_res)
-                    except ValueError:
-                        res_index = 0
-                    residence_area = st.selectbox(
-                        "Residence Area",
+                    # Residence
+                    default_res = imputations.get("residence", "Rural")
+                    res_options = ["Rural", "Urban"]
+                    res_index = res_options.index(default_res) if default_res in res_options else 0
+                    residence = st.selectbox(
+                        "Residence Setting",
                         options=res_options,
                         index=res_index,
-                        help="Patient's area of residence."
+                        help="General residential location classification."
                     )
 
-                    # Numeric: Age
-                    age = st.number_input(
+                    # Season
+                    default_season = imputations.get("season", "Rainy")
+                    season_options = ["Rainy", "Dry"]
+                    season_index = season_options.index(default_season) if default_season in season_options else 0
+                    season = st.selectbox(
+                        "Transmission Season",
+                        options=season_options,
+                        index=season_index,
+                        help="Current regional climate season."
+                    )
+
+                    # Age
+                    age_years = st.number_input(
                         "Patient Age (Years)",
                         min_value=0.0,
                         max_value=120.0,
-                        value=float(imputations.get("age", 44.0)),
+                        value=float(imputations.get("age_years", 8.0)),
                         step=1.0,
                         help="Patient's age in years."
                     )
 
-                    # Numeric: Length of Stay
-                    length_of_stay = st.number_input(
-                        "Length of Stay (Days)",
+                    # Fever Days
+                    fever_days = st.number_input(
+                        "Fever Duration (Days)",
                         min_value=0.0,
-                        max_value=100.0,
-                        value=float(imputations.get("length_of_stay", 5.0)),
+                        max_value=30.0,
+                        value=float(imputations.get("fever_days", 1.0)),
                         step=1.0,
-                        help="Number of days the patient was admitted."
+                        help="Number of consecutive days patient experienced fever (0 if no fever)."
                     )
+
+                    # Mosquito net usage
+                    default_net = int(imputations.get("uses_mosquito_net", 0))
+                    uses_net_str = st.selectbox(
+                        "Uses Insecticide-Treated Mosquito Net",
+                        options=["No", "Yes"],
+                        index=default_net,
+                        help="Whether the patient regularly sleeps under a mosquito net."
+                    )
+                    uses_mosquito_net = 1 if uses_net_str == "Yes" else 0
+
+                    st.markdown("**Optional Laboratory Parameters**")
+                    has_hb = st.checkbox("Provide Hemoglobin (Hb) Test Result", value=True)
+                    if has_hb:
+                        hb_val = st.number_input(
+                            "Hemoglobin Level (g/dL)",
+                            min_value=2.0,
+                            max_value=22.0,
+                            value=float(imputations.get("hemoglobin_g_dl", 11.4)),
+                            step=0.1,
+                            help="Measured blood hemoglobin level in g/dL."
+                        )
+                        hemoglobin_g_dl = hb_val
+                    else:
+                        hemoglobin_g_dl = float(imputations.get("hemoglobin_g_dl", 11.4))
 
                 with col2:
                     st.markdown("**Clinical Symptoms**")
                     symptoms = [
-                        ("fever", "Fever"),
-                        ("headache", "Headache"),
-                        ("abdominal_pain", "Abdominal Pain"),
-                        ("general_body_malaise", "General Body Malaise"),
-                        ("dizziness", "Dizziness"),
-                        ("vomiting", "Vomiting"),
-                        ("confusion", "Confusion"),
-                        ("backache", "Backache"),
-                        ("chest_pain", "Chest Pain"),
-                        ("coughing", "Coughing"),
-                        ("joint_pain", "Joint Pain")
+                        ("has_fever", "Fever"),
+                        ("has_chills", "Chills / Rigors"),
+                        ("has_headache", "Headache"),
+                        ("has_vomiting", "Vomiting / Nausea"),
+                        ("has_diarrhea", "Diarrhea"),
+                        ("has_weakness", "General Body Weakness / Fatigue"),
                     ]
                     
                     symptom_inputs = {}
@@ -278,7 +301,7 @@ def main() -> None:
                             label,
                             options=["No", "Yes"],
                             index=default_val,
-                            help=f"Does the patient exhibit {label.lower()}?"
+                            help=f"Does the patient present with {label.lower()}?"
                         )
                         symptom_inputs[key] = 1 if ans == "Yes" else 0
 
@@ -287,9 +310,12 @@ def main() -> None:
             if submit_prediction:
                 record = {
                     "sex": sex,
-                    "residence_area": residence_area,
-                    "age": age,
-                    "length_of_stay": length_of_stay,
+                    "residence": residence,
+                    "season": season,
+                    "age_years": age_years,
+                    "fever_days": fever_days,
+                    "uses_mosquito_net": uses_mosquito_net,
+                    "hemoglobin_g_dl": hemoglobin_g_dl,
                     **symptom_inputs
                 }
 
@@ -302,12 +328,10 @@ def main() -> None:
 
                     prob = float(res["probability"])
                     
-                    # Convert probability -> binary label based on threshold override
                     is_positive = prob >= decision_threshold
                     res_label = "Malaria Positive" if is_positive else "Malaria Negative"
                     card_class = "card-positive" if is_positive else "card-negative"
 
-                    # Clinical formatting: show < 0.01% for extremely low non-zero risk to avoid user confusion
                     if prob == 0.0:
                         prob_str = "0.00%"
                     elif prob < 0.0001:
@@ -349,7 +373,6 @@ def main() -> None:
                 st.dataframe(metrics_df, use_container_width=True, hide_index=True)
 
             with col_met_2:
-                # Show key highlights
                 best_model_row = metrics_df.iloc[0]
                 st.markdown(
                     f"""
@@ -404,12 +427,10 @@ def main() -> None:
     with tab3:
         st.subheader("📋 Dataset Preview & Quality Statistics")
         processed_data_path = ROOT / data_cfg["processed_path"]
-        
-        # Fallback to raw dataset if processed path is missing
         dataset_path = processed_data_path if processed_data_path.exists() else ROOT / data_cfg["raw_path"]
 
         if not dataset_path.exists():
-            st.info("Dataset file is missing. Place the Malaria Diseases dataset CSV in the dataset directory.")
+            st.info("Dataset file is missing.")
         else:
             data_df = pd.read_csv(dataset_path)
 
@@ -426,7 +447,7 @@ def main() -> None:
 
             with col_stats2:
                 st.markdown("#### Class Balance Distribution")
-                target_col = "target" if "target" in data_df.columns else ("malaria_occurrence" if "malaria_occurrence" in data_df.columns else "Result")
+                target_col = "malaria_status" if "malaria_status" in data_df.columns else ("target" if "target" in data_df.columns else "Result")
                 
                 if target_col in data_df.columns:
                     counts = data_df[target_col].value_counts()
@@ -438,7 +459,7 @@ def main() -> None:
                     })
                     st.dataframe(dist_df, use_container_width=True)
                 else:
-                    st.caption("Target column 'Result'/'malaria_occurrence' not found in dataset columns.")
+                    st.caption(f"Target column '{target_col}' not found in dataset columns.")
 
     # 4. Footer Section
     st.markdown(

@@ -45,13 +45,13 @@ def main() -> None:
         metadata = load_artifact(metadata_path)
         features = list(metadata["imputation_defaults"].keys())
     except FileNotFoundError:
-        # Fallback list for the new Malaria_Dataset.csv schema
+        # Fallback list for the Africa-wide HF dataset schema
         features = [
-            "sex", "residence_area",
-            "age", "length_of_stay",
-            "fever", "headache", "abdominal_pain", "general_body_malaise",
-            "dizziness", "vomiting", "confusion", "backache",
-            "chest_pain", "coughing", "joint_pain",
+            "sex", "residence", "season",
+            "age_years", "hemoglobin_g_dl", "fever_days",
+            "uses_mosquito_net",
+            "has_fever", "has_chills", "has_headache",
+            "has_vomiting", "has_diarrhea", "has_weakness",
         ]
         metadata = None
 
@@ -100,7 +100,7 @@ def main() -> None:
     else:
         # Collect dynamic flags into record
         record: dict[str, Any] = {}
-        categorical_features = {"sex", "residence_area"}
+        categorical_features = {"sex", "residence", "season"}
         for feature in features:
             val = getattr(args, feature)
             if val is not None:

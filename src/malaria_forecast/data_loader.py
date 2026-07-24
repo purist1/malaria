@@ -1,11 +1,17 @@
 """Data loading and header normalization module.
 
-Updated to handle Malaria_Dataset.csv:
-  - Drops administrative/leakage columns (IP_Number, Primary_Code,
-    Diagnosis_Type, Risk_Score).
-  - Engineers `length_of_stay` (integer days) from DOA and Discharge_Date.
-  - Normalizes remaining column names to snake_case.
-  - Maps `Target` (0/1 integer) directly as the binary label.
+Supports the Africa-wide synthetic malaria dataset:
+  electricsheepafrica/africa-synth-malaria-malaria-dataset-all
+
+The loader:
+  1. Reads the locally-cached CSV (dataset/africa_malaria_hf/train.csv or
+     a merged train+validation file, depending on config).
+  2. Drops all post-diagnosis leakage columns (defined in features.py).
+  3. Converts boolean columns to int (0/1).
+  4. Normalizes column names to snake_case.
+  5. Encodes the target: malaria_status → Positive=1, Negative=0.
+  6. Fills missing hemoglobin_g_dl with NaN (handled during preprocessing
+     via median imputation on the training fold).
 """
 
 from __future__ import annotations
@@ -14,145 +20,137 @@ import logging
 from pathlib import Path
 import re
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Columns to discard before any feature engineering (administrative / leakage)
-_DROP_COLUMNS = {
-    "ip_number",       # patient ID — no predictive value
-    "primary_code",    # ICD code — post-hoc / leakage
-    "diagnosis_type",  # plain text diagnosis — post-hoc / leakage
-    "risk_score",      # derived from symptom flags — leakage
-}
 
-# Raw column names for date engineering (before normalization)
-_DATE_OF_ADMISSION_RAW = "DOA"
-_DISCHARGE_DATE_RAW = "Discharge_Date"
-_LOS_COLUMN = "length_of_stay"
-_DATE_FORMAT = "%d-%m-%Y %H:%M"
-
+# ── Column name normalization ─────────────────────────────────────────────────
 
 def normalize_column_name(raw_name: str) -> str:
     """Normalize raw dataset column headers to canonical snake_case.
 
     Examples:
-        'IP_Number'          -> 'ip_number'
-        'General_Body_Malaise' -> 'general_body_malaise'
-        'DOA'                -> 'doa'
+        'Age_Years'   -> 'age_years'
+        'Has_Fever'   -> 'has_fever'
+        'HbG/dl'      -> 'hbg_dl'
     """
     name = raw_name.strip().lower()
-    # Replace any non-alphanumeric character sequences with a single underscore
     name = re.sub(r"[^a-z0-9]+", "_", name)
-    # Clean up duplicate underscores and trailing/leading underscores
     name = re.sub(r"_+", "_", name).strip("_")
     return name
 
 
-def _engineer_length_of_stay(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute length_of_stay (integer days) from DOA and Discharge_Date.
+# ── Boolean → int conversion ──────────────────────────────────────────────────
 
-    Both columns are dropped after engineering. If parsing fails, the column
-    is filled with 0 and a warning is logged.
-    """
-    try:
-        doa = pd.to_datetime(df[_DATE_OF_ADMISSION_RAW], format=_DATE_FORMAT)
-        discharge = pd.to_datetime(df[_DISCHARGE_DATE_RAW], format=_DATE_FORMAT)
-        los = (discharge - doa).dt.days.clip(lower=0).fillna(0).astype(int)
-        df[_LOS_COLUMN] = los
-        logger.info("Engineered '%s': min=%d, max=%d, mean=%.2f days",
-                    _LOS_COLUMN, int(los.min()), int(los.max()), float(los.mean()))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to parse admission/discharge dates (%s). "
-                       "Setting '%s' to 0.", exc, _LOS_COLUMN)
-        df[_LOS_COLUMN] = 0
+_BOOL_COLUMNS = {
+    "uses_mosquito_net",
+    "has_fever",
+    "has_chills",
+    "has_headache",
+    "has_vomiting",
+    "has_diarrhea",
+    "has_weakness",
+    "severe_malaria",
+    "cerebral_malaria",
+    "respiratory_distress",
+    "shock",
+    "acute_kidney_injury",
+}
 
-    df = df.drop(columns=[_DATE_OF_ADMISSION_RAW, _DISCHARGE_DATE_RAW], errors="ignore")
+
+def _cast_booleans(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert boolean / object True/False columns to integer 0/1."""
+    for col in _BOOL_COLUMNS:
+        if col in df.columns:
+            df[col] = df[col].map(
+                lambda v: 1 if v is True or str(v).strip().lower() == "true" else 0
+            ).astype(int)
     return df
 
 
+# ── Main loader ───────────────────────────────────────────────────────────────
+
 def load_raw_dataset(filepath: str | Path) -> pd.DataFrame:
-    """Load the Malaria_Dataset.csv, engineer features, normalize headers.
+    """Load the Africa-wide malaria dataset CSV, clean and normalise.
 
     Pipeline:
         1. Load CSV.
-        2. Engineer ``length_of_stay`` from admission/discharge dates.
-        3. Drop administrative and data-leakage columns.
-        4. Normalize all remaining column names to snake_case.
-        5. Validate that the target column is present and already binary (0/1).
+        2. Normalize column names to snake_case.
+        3. Drop post-diagnosis / leakage / administrative columns.
+        4. Convert boolean columns to int (0/1).
+        5. Ensure hemoglobin_g_dl is numeric (NaN where missing → imputed later).
+        6. Validate and encode the target column (malaria_status → 0/1).
 
     Args:
-        filepath: Path to the raw CSV file.
+        filepath: Path to the raw CSV file (locally cached HF export).
 
     Returns:
-        pd.DataFrame: Ready-to-preprocess dataframe with normalized columns.
+        pd.DataFrame: Ready-to-preprocess dataframe with normalised columns.
     """
+    from src.malaria_forecast.features import HF_DROP_COLUMNS, TARGET_COLUMN, TARGET_VALUE_MAP
+
     path = Path(filepath)
     if not path.exists():
-        raise FileNotFoundError(f"Raw dataset file not found at: {path}")
+        raise FileNotFoundError(
+            f"Dataset CSV not found at: {path}\n"
+            "Run `python scripts/download_dataset.py` to download the dataset."
+        )
 
     df = pd.read_csv(path)
-    logger.info("Loaded raw dataset from %s (shape: %s)", path, df.shape)
+    logger.info("Loaded dataset from %s  (shape: %s)", path, df.shape)
 
-    # --- Step 1: Engineer length_of_stay before renaming columns ---
-    if _DATE_OF_ADMISSION_RAW in df.columns and _DISCHARGE_DATE_RAW in df.columns:
-        df = _engineer_length_of_stay(df)
-    else:
-        logger.warning(
-            "Admission/discharge date columns not found. "
-            "Setting '%s' to 0.", _LOS_COLUMN
-        )
-        df[_LOS_COLUMN] = 0
-
-    # --- Step 2: Compute raw-to-normalized column mapping ---
+    # --- Step 1: Normalise column names ---
     mapping = {col: normalize_column_name(col) for col in df.columns}
-
-    print("\n--- Dataset Column Normalization Mapping ---")
-    for raw, norm in mapping.items():
-        print(f"  '{raw}' -> '{norm}'")
-    print("--------------------------------------------\n")
-
     df = df.rename(columns=mapping)
 
-    # --- Step 3: Drop administrative / leakage columns ---
-    drop_targets = _DROP_COLUMNS & set(df.columns)
+    # --- Step 2: Drop leakage / admin columns ---
+    drop_targets = HF_DROP_COLUMNS & set(df.columns)
     if drop_targets:
-        logger.info("Dropping administrative/leakage columns: %s", sorted(drop_targets))
+        logger.info("Dropping leakage/admin columns: %s", sorted(drop_targets))
         df = df.drop(columns=list(drop_targets))
 
-    # --- Step 4: Validate target column ---
-    from src.malaria_forecast.features import TARGET_COLUMN  # avoid circular at module level
+    # --- Step 3: Convert booleans to int ---
+    df = _cast_booleans(df)
 
+    # --- Step 4: Ensure hemoglobin is numeric; NaN rows will be imputed ---
+    if "hemoglobin_g_dl" in df.columns:
+        df["hemoglobin_g_dl"] = pd.to_numeric(df["hemoglobin_g_dl"], errors="coerce")
+
+    # --- Step 5: Validate and encode target ---
     if TARGET_COLUMN not in df.columns:
-        available = list(df.columns)
         raise ValueError(
-            f"Target column '{TARGET_COLUMN}' not found after normalization. "
-            f"Available columns: {available}"
+            f"Target column '{TARGET_COLUMN}' not found. "
+            f"Available columns: {list(df.columns)}"
         )
 
     raw_target = df[TARGET_COLUMN]
 
-    # Accept integer 0/1 directly (Malaria_Dataset.csv) or string labels
     if raw_target.dtype in (int, "int64", "Int64"):
-        unique_vals = set(raw_target.unique())
+        unique_vals = set(raw_target.dropna().unique())
         if not unique_vals.issubset({0, 1}):
             raise ValueError(
-                f"Target column '{TARGET_COLUMN}' contains non-binary integer values: {unique_vals}"
+                f"Target column '{TARGET_COLUMN}' has non-binary values: {unique_vals}"
             )
         df[TARGET_COLUMN] = raw_target.astype(int)
     else:
         encoded = raw_target.astype(str).str.strip().str.lower()
-        target_map = {"positive": 1, "1": 1, "negative": 0, "0": 0}
-        unmapped = set(encoded.unique()) - set(target_map.keys())
+        unmapped = set(encoded.unique()) - set(TARGET_VALUE_MAP.keys())
         if unmapped:
             raise ValueError(
                 f"Unrecognized target labels: {unmapped}. "
-                "Expected binary positive/negative or 0/1."
+                f"Expected one of: {set(TARGET_VALUE_MAP.keys())}"
             )
-        df[TARGET_COLUMN] = encoded.map(target_map).astype(int)
+        df[TARGET_COLUMN] = encoded.map(TARGET_VALUE_MAP).astype(int)
 
     pos = int(df[TARGET_COLUMN].sum())
     neg = int((df[TARGET_COLUMN] == 0).sum())
-    logger.info("Target distribution — Positive: %d, Negative: %d (total: %d)", pos, neg, len(df))
+    logger.info(
+        "Target distribution — Positive: %d (%.1f%%), Negative: %d (%.1f%%) | Total: %d",
+        pos, 100 * pos / len(df),
+        neg, 100 * neg / len(df),
+        len(df),
+    )
 
     return df

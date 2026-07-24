@@ -1,63 +1,91 @@
 """Feature definitions for the Malaria Occurrence Prediction System.
 
-Updated for Malaria_Dataset.csv which contains:
-  - Demographic: Age, Sex, Residence_Area
-  - Clinical symptoms (binary flags): Fever, Headache, Abdominal_Pain,
-    General_Body_Malaise, Dizziness, Vomiting, Confusion, Backache,
-    Chest_Pain, Coughing, Joint_Pain
-  - Engineered: length_of_stay (days, derived from DOA and Discharge_Date)
-  - Target: Target (0 = no severe malaria, 1 = severe/confirmed malaria)
+Updated for the Africa-wide synthetic dataset
+(electricsheepafrica/africa-synth-malaria-malaria-dataset-all):
 
-Dropped columns (no predictive value / data leakage):
-  IP_Number, DOA, Discharge_Date, Primary_Code, Diagnosis_Type, Risk_Score
+  - Demographic / geographic: age_years, sex, residence (Urban/Rural)
+  - Environmental:            season (Rainy/Dry)
+  - Preventive:               uses_mosquito_net (bool → 0/1)
+  - Clinical lab:             hemoglobin_g_dl (optional, defaults to median)
+  - Clinical duration:        fever_days
+  - Symptom flags (binary):   has_fever, has_chills, has_headache,
+                              has_vomiting, has_diarrhea, has_weakness
+  - Target:                   malaria_status → Positive=1, Negative=0
+
+Dropped leakage / post-diagnosis columns:
+  patient_id, age_months, age_group,
+  parasitemia_level, parasitemia_count, plasmodium_species,
+  hemoglobin_g_dl (only if truly unavailable — kept as optional here),
+  anemia_status, outcome, malaria_probability_score,
+  severe_malaria, cerebral_malaria, respiratory_distress,
+  shock, acute_kidney_injury
 """
 
 from __future__ import annotations
 
-# Numeric features: continuous/count columns to be scaled
+# Continuous numeric features (standardised with StandardScaler)
 NUMERIC_FEATURES = [
-    "age",
-    "length_of_stay",  # engineered: Discharge_Date - DOA in days
+    "age_years",
+    "hemoglobin_g_dl",   # optional lab value — defaults to median if missing
+    "fever_days",
 ]
 
-# Binary symptom flags: already 0/1, included as numeric for scaling
+# Binary flags: preventive behaviour + symptom indicators (0/1)
+# Included in numeric block so they are scaled alongside continuous features.
 SYMPTOM_FEATURES = [
-    "fever",
-    "headache",
-    "abdominal_pain",
-    "general_body_malaise",
-    "dizziness",
-    "vomiting",
-    "confusion",
-    "backache",
-    "chest_pain",
-    "coughing",
-    "joint_pain",
+    "uses_mosquito_net",   # 0 = No, 1 = Yes (preventive)
+    "has_fever",
+    "has_chills",
+    "has_headache",
+    "has_vomiting",
+    "has_diarrhea",
+    "has_weakness",
 ]
 
-# Categorical demographic/geographic features (will be one-hot encoded)
+# Categorical features (One-Hot Encoded)
 CATEGORICAL_FEATURES = [
-    "sex",
-    "residence_area",
+    "sex",        # Male / Female
+    "residence",  # Urban / Rural  (replaces the 5 Kogi-specific LGAs)
+    "season",     # Rainy / Dry
 ]
 
-# Target column name (after normalization)
-TARGET_COLUMN = "target"
+# Target column name (after normalisation)
+TARGET_COLUMN = "malaria_status"
 
-# All numeric columns fed to the scaler (continuous + binary symptoms)
+# All numeric columns fed to the scaler (continuous + binary flags)
 ALL_NUMERIC_FEATURES = NUMERIC_FEATURES + SYMPTOM_FEATURES
 
-# Combined feature set (order matches preprocessing pipeline output)
+# Combined ordered feature set (order matches preprocessing pipeline output)
 ALL_FEATURES = CATEGORICAL_FEATURES + ALL_NUMERIC_FEATURES
 
 # Human-readable labels mapped to target integers
 LABEL_MAP = {
-    0: "Malaria Negative / Mild",
-    1: "Malaria Positive / Severe",
+    0: "Malaria Negative",
+    1: "Malaria Positive",
 }
 
-# Raw target values accepted by the loader
+# Raw string target values → integer encoding
 TARGET_VALUE_MAP = {
+    "positive": 1,
     "1": 1,
+    "negative": 0,
     "0": 0,
+}
+
+# Columns to drop from the raw HF dataset (leakage / administrative)
+HF_DROP_COLUMNS = {
+    "patient_id",
+    "age_months",
+    "age_group",
+    "parasitemia_level",
+    "parasitemia_count",
+    "plasmodium_species",
+    "anemia_status",
+    "outcome",
+    "malaria_probability_score",
+    "severe_malaria",
+    "cerebral_malaria",
+    "respiratory_distress",
+    "shock",
+    "acute_kidney_injury",
 }

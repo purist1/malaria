@@ -1,7 +1,9 @@
 data:
-  raw_path: "dataset/Malaria_Dataset.csv"
+  raw_path: "dataset/africa_malaria_hf/train.csv"
   processed_path: "data/processed/malaria_processed.csv"
-  target_column: "target"
+  target_column: "malaria_status"
+  hf_dataset_id: "electricsheepafrica/africa-synth-malaria-malaria-dataset-all"
+  hf_local_dir: "dataset/africa_malaria_hf"
   remove_duplicates: true
 
 split:
