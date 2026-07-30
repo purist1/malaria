@@ -28,7 +28,7 @@ def load_config(config_path: str | Path = "config/config.yaml") -> dict[str, Any
 
 def validate_config(config: dict[str, Any]) -> None:
     """Validate structure and required keys in the configuration dictionary."""
-    required_sections = ["data", "split", "models", "artifacts", "dashboard"]
+    required_sections = ["data", "split", "models", "artifacts", "dashboard", "eda"]
     for section in required_sections:
         if section not in config:
             raise ValueError(f"Missing required configuration section: '{section}'")

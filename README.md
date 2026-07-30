@@ -118,6 +118,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+**Required Dependencies:**
+- numpy>=1.24.0
+- pandas>=2.0.0
+- scikit-learn>=1.3.0
+- joblib>=1.3.0
+- pyyaml>=6.0
+- matplotlib>=3.7.0
+- seaborn>=0.12.0
+- streamlit>=1.28.0
+- plotly>=5.18.0
+- pytest>=7.0.0
+- imbalanced-learn>=0.11.0
+- nbformat>=5.9.0
+- jupyter>=1.0.0
+- datasets>=2.14.0 (for HuggingFace dataset download)
+
 ### Download Dataset
 ```bash
 python scripts/download_dataset.py
@@ -136,6 +152,11 @@ python scripts/predict.py --sex Male --residence Rural --season Rainy --age-year
 ### Run Tests
 ```bash
 pytest tests/ -v
+```
+
+### Generate EDA Figures
+```bash
+python scripts/generate_eda.py --config config/config.yaml
 ```
 
 ### Run Streamlit App
