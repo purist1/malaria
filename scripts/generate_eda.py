@@ -50,9 +50,8 @@ logger = logging.getLogger(__name__)
 # Shared plot style
 sns.set_theme(style="whitegrid", palette="Set2")
 SYMPTOM_FEATURES = [
-    "fever", "headache", "abdominal_pain", "general_body_malaise",
-    "dizziness", "vomiting", "confusion", "backache",
-    "chest_pain", "coughing", "joint_pain",
+    "has_fever", "has_chills", "has_headache", "has_vomiting",
+    "has_diarrhea", "has_weakness",
 ]
 
 
@@ -173,11 +172,11 @@ def plot_feature_importance(df: pd.DataFrame, out_dir: Path) -> None:
     from sklearn.preprocessing import LabelEncoder
 
     # Minimal encoding for the importance calculation
-    df_enc = df[ALL_NUMERIC_FEATURES + ["sex", "residence_area", TARGET_COLUMN]].copy()
-    for col in ["sex", "residence_area"]:
+    df_enc = df[ALL_NUMERIC_FEATURES + ["sex", "residence", TARGET_COLUMN]].copy()
+    for col in ["sex", "residence"]:
         df_enc[col] = LabelEncoder().fit_transform(df_enc[col].astype(str))
 
-    feature_cols = ALL_NUMERIC_FEATURES + ["sex", "residence_area"]
+    feature_cols = ALL_NUMERIC_FEATURES + ["sex", "residence"]
     X = df_enc[feature_cols]
     y = df_enc[TARGET_COLUMN]
 
@@ -258,8 +257,8 @@ def plot_symptom_boxplots(df: pd.DataFrame, out_dir: Path) -> None:
     plt.close(fig)
     logger.info("Saved: %s", path)
 
-    # Also save individual boxplots for age and length_of_stay
-    for cont_col in ["age", "length_of_stay"]:
+    # Also save individual boxplots for age and fever_days
+    for cont_col in ["age_years", "fever_days"]:
         fig2, ax2 = plt.subplots(figsize=(7, 5), dpi=150)
         df_plot = df[[cont_col, TARGET_COLUMN]].copy()
         df_plot["Outcome"] = df_plot[TARGET_COLUMN].map({0: "Negative", 1: "Positive"})
@@ -271,7 +270,7 @@ def plot_symptom_boxplots(df: pd.DataFrame, out_dir: Path) -> None:
         ax2.set_title(f"{cont_col.replace('_', ' ').title()} vs Malaria Outcome",
                       fontsize=13, fontweight="bold")
         ax2.set_xlabel("Malaria Outcome", fontsize=11)
-        ax2.set_ylabel(cont_col.replace("_", " ").title(), fontsize=11)
+        ax2.set_ylabel(cont_col.replace('_', ' ').title(), fontsize=11)
         plt.tight_layout()
         p2 = out_dir / f"boxplot_{cont_col}.png"
         fig2.savefig(p2, bbox_inches="tight", dpi=150)
